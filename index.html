@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>TruthLens — AI Content Detector</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --border: #1e1e2e;
+      --accent: #00e5ff;
+      --accent2: #ff4081;
+      --text: #e8e8f0;
+      --muted: #6b6b8a;
+      --human: #00e5a0;
+      --ai: #ff4081;
+      --uncertain: #ffb300;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    header {
+      padding: 48px 0 32px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .logo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0,229,255,0.06);
+      border: 1px solid rgba(0,229,255,0.2);
+      border-radius: 100px;
+      padding: 6px 16px;
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .logo-badge span { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: pulse 2s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    h1 {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(2.4rem, 6vw, 4rem);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+    }
+    h1 em {
+      font-style: normal;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+      max-width: 500px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 4px;
+      margin-bottom: 20px;
+    }
+    .tab {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .tab.active {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .tab:hover:not(.active) { color: var(--text); }
+
+    .input-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 14px;
+      line-height: 1.7;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    textarea:focus { border-color: var(--accent); }
+    textarea::placeholder { color: var(--muted); }
+
+    .image-drop {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      background: var(--bg);
+    }
+    .image-drop:hover, .image-drop.drag { border-color: var(--accent); background: rgba(0,229,255,0.04); }
+    .image-drop input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .image-drop .drop-icon { font-size: 36px; margin-bottom: 10px; }
+    .image-drop p { color: var(--muted); font-size: 13px; }
+    .image-drop .highlight { color: var(--accent); }
+
+    #preview-img {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 12px;
+      margin-top: 16px;
+      display: none;
+      border: 1px solid var(--border);
+    }
+
+    .analyze-btn {
+      width: 100%;
+      margin-top: 16px;
+      padding: 14px;
+      background: linear-gradient(135deg, var(--accent) 0%, #0099cc 100%);
+      border: none;
+      border-radius: 12px;
+      color: #000;
+      font-family: 'Syne', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .analyze-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 30px rgba(0,229,255,0.25); }
+    .analyze-btn:active { transform: translateY(0); }
+    .analyze-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .analyze-btn.loading::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+      animation: shimmer 1.2s infinite;
+    }
+    @keyframes shimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+
+    #result-card {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      margin-bottom: 24px;
+      animation: slideUp 0.4s ease;
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .result-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .verdict-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 18px;
+      border-radius: 100px;
+      font-family: 'Syne', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .verdict-badge.ai { background: rgba(255,64,129,0.15); color: var(--ai); border: 1px solid rgba(255,64,129,0.3); }
+    .verdict-badge.human { background: rgba(0,229,160,0.12); color: var(--human); border: 1px solid rgba(0,229,160,0.25); }
+    .verdict-badge.uncertain { background: rgba(255,179,0,0.12); color: var(--uncertain); border: 1px solid rgba(255,179,0,0.25); }
+
+    .confidence-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-left: auto;
+    }
+    .confidence-label { font-size: 11px; color: var(--muted); }
+    .confidence-value { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; }
+
+    .meter-wrap { margin-bottom: 20px; }
+    .meter-track {
+      height: 6px;
+      background: var(--border);
+      border-radius: 100px;
+      overflow: hidden;
+    }
+    .meter-fill {
+      height: 100%;
+      border-radius: 100px;
+      transition: width 0.8s cubic-bezier(0.34,1.56,0.64,1);
+      background: linear-gradient(90deg, var(--human), var(--ai));
+    }
+    .meter-labels {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 6px;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+    }
+
+    .signals-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .signal-chip {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 12px;
+    }
+    .signal-chip .signal-label { color: var(--muted); margin-bottom: 4px; }
+    .signal-chip .signal-val { font-weight: 500; }
+
+    .analysis-text {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--text);
+      white-space: pre-wrap;
+    }
+
+    .error-box {
+      display: none;
+      background: rgba(255,64,129,0.08);
+      border: 1px solid rgba(255,64,129,0.25);
+      border-radius: 12px;
+      padding: 14px 18px;
+      color: var(--ai);
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+
+    footer {
+      text-align: center;
+      padding: 32px 0 48px;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+    footer a { color: var(--accent); text-decoration: none; opacity: 0.7; }
+    footer a:hover { opacity: 1; }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div class="logo-badge"><span></span> Powered by Gemini AI</div>
+    <h1>Truth<em>Lens</em></h1>
+    <p class="subtitle">Instantly detect whether text or images were generated by AI — paste content below and get a detailed analysis.</p>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('text', this)">
+      <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4zm2-1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H2z"/><path d="M3 5.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5zM3 8a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9A.5.5 0 0 1 3 8zm0 2.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5z"/></svg>
+      Analyze Text
+    </button>
+    <button class="tab" onclick="switchTab('image', this)">
+      <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M6.002 5.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/><path d="M2.002 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2h-12zm12 1a1 1 0 0 1 1 1v6.5l-3.777-1.947a.5.5 0 0 0-.577.093l-3.71 3.71-2.66-1.772a.5.5 0 0 0-.63.062L1.002 12V3a1 1 0 0 1 1-1h12z"/></svg>
+      Analyze Image
+    </button>
+  </div>
+
+  <div class="error-box" id="errorBox"></div>
+
+  <div class="panel active" id="panel-text">
+    <div class="input-card">
+      <textarea id="textInput" placeholder="Paste the text you want to analyze here...&#10;&#10;Works best with 100+ words. The AI will look for telltale signs of machine generation: unusual fluency, lack of personal voice, repetitive patterns, and more."></textarea>
+      <button class="analyze-btn" id="analyzeTextBtn" onclick="analyzeText()">
+        ⚡ Analyze Text
+      </button>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-image">
+    <div class="input-card">
+      <div class="image-drop" id="dropZone">
+        <input type="file" id="imageInput" accept="image/*" onchange="handleImageUpload(this)" />
+        <div class="drop-icon">🖼️</div>
+        <p><span class="highlight">Click to upload</span> or drag & drop</p>
+        <p style="margin-top:6px; font-size:11px;">JPG, PNG, WEBP, GIF — up to 10MB</p>
+      </div>
+      <img id="preview-img" alt="Preview" />
+      <button class="analyze-btn" id="analyzeImageBtn" onclick="analyzeImage()" style="margin-top:16px;">
+        ⚡ Analyze Image
+      </button>
+    </div>
+  </div>
+
+  <div id="result-card">
+    <div class="result-header">
+      <div class="verdict-badge" id="verdictBadge">—</div>
+      <div class="confidence-row">
+        <div class="confidence-label">CONFIDENCE</div>
+        <div class="confidence-value" id="confidenceVal">—</div>
+      </div>
+    </div>
+
+    <div class="meter-wrap">
+      <div class="meter-track"><div class="meter-fill" id="meterFill" style="width:0%"></div></div>
+      <div class="meter-labels"><span>↑ HUMAN</span><span>AI ↑</span></div>
+    </div>
+
+    <div class="signals-grid" id="signalsGrid"></div>
+    <div class="analysis-text" id="analysisText"></div>
+  </div>
+
+  <footer>
+    TruthLens &nbsp;•&nbsp; Powered by <a href="https://ai.google.dev" target="_blank">Google Gemini</a> &nbsp;•&nbsp;
+    Results are probabilistic — not legal evidence
+  </footer>
+</div>
+
+<script>
+  let imageBase64 = null;
+  let imageType = null;
+
+  function switchTab(tab, btn) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('panel-' + tab).classList.add('active');
+    hideResult(); hideError();
+  }
+
+  function handleImageUpload(input) {
+    const file = input.files[0];
+    if (!file) return;
+    imageType = file.type;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      imageBase64 = e.target.result.split(',')[1];
+      const img = document.getElementById('preview-img');
+      img.src = e.target.result;
+      img.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  }
+
+  const dropZone = document.getElementById('dropZone');
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+      imageType = file.type;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        imageBase64 = ev.target.result.split(',')[1];
+        const img = document.getElementById('preview-img');
+        img.src = ev.target.result;
+        img.style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  // ── Calls our secure Netlify Function proxy (key never exposed to browser) ──
+  async function callProxy(parts) {
+    const res = await fetch('/.netlify/functions/gemini', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parts })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Server error ' + res.status);
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  }
+
+  const TEXT_PROMPT = (text) => `You are an expert AI content detection system. Analyze the following text and determine if it was written by a human or generated by an AI (like ChatGPT, Claude, Gemini, etc.).
+
+Text to analyze:
+"""
+${text}
+"""
+
+Respond ONLY in this exact JSON format (no markdown, no extra text):
+{
+  "verdict": "AI_GENERATED" | "HUMAN_WRITTEN" | "UNCERTAIN",
+  "confidence": <number 0-100>,
+  "ai_probability": <number 0-100>,
+  "signals": {
+    "fluency": "<Low|Medium|High>",
+    "personal_voice": "<Absent|Weak|Present>",
+    "repetition": "<Low|Medium|High>",
+    "sentence_variety": "<Low|Medium|High>"
+  },
+  "analysis": "<2-3 sentence explanation of key indicators>"
+}`;
+
+  const IMAGE_PROMPT = `You are an expert AI-generated image detection system. Analyze this image and determine if it was created by an AI image generator (like Midjourney, DALL-E, Stable Diffusion, etc.) or if it is a real photograph or human-made artwork.
+
+Respond ONLY in this exact JSON format (no markdown, no extra text):
+{
+  "verdict": "AI_GENERATED" | "HUMAN_CREATED" | "UNCERTAIN",
+  "confidence": <number 0-100>,
+  "ai_probability": <number 0-100>,
+  "signals": {
+    "artifacts": "<None|Some|Many>",
+    "texture_coherence": "<Low|Medium|High>",
+    "lighting_consistency": "<Inconsistent|Consistent>",
+    "detail_realism": "<Unrealistic|Mixed|Realistic>"
+  },
+  "analysis": "<2-3 sentence explanation of key visual indicators>"
+}`;
+
+  async function analyzeText() {
+    const text = document.getElementById('textInput').value.trim();
+    if (text.length < 30) { showError('Please enter at least 30 characters of text.'); return; }
+    setLoading('analyzeTextBtn', true);
+    hideResult(); hideError();
+    try {
+      const raw = await callProxy([{ text: TEXT_PROMPT(text) }]);
+      renderResult(JSON.parse(raw.replace(/```json|```/g, '').trim()));
+    } catch(e) { showError('Error: ' + e.message); }
+    finally { setLoading('analyzeTextBtn', false); }
+  }
+
+  async function analyzeImage() {
+    if (!imageBase64) { showError('Please upload an image first.'); return; }
+    setLoading('analyzeImageBtn', true);
+    hideResult(); hideError();
+    try {
+      const raw = await callProxy([
+        { inlineData: { mimeType: imageType, data: imageBase64 } },
+        { text: IMAGE_PROMPT }
+      ]);
+      renderResult(JSON.parse(raw.replace(/```json|```/g, '').trim()));
+    } catch(e) { showError('Error: ' + e.message); }
+    finally { setLoading('analyzeImageBtn', false); }
+  }
+
+  function renderResult(data) {
+    const isAI = data.verdict === 'AI_GENERATED';
+    const isUncertain = data.verdict === 'UNCERTAIN';
+    const label = isAI ? '🤖 AI Generated' : isUncertain ? '🤔 Uncertain' : '👤 Human Created';
+    const cls = isAI ? 'ai' : isUncertain ? 'uncertain' : 'human';
+
+    const badge = document.getElementById('verdictBadge');
+    badge.textContent = label;
+    badge.className = 'verdict-badge ' + cls;
+
+    document.getElementById('confidenceVal').textContent = data.confidence + '%';
+    document.getElementById('meterFill').style.width = (data.ai_probability ?? data.confidence) + '%';
+
+    const grid = document.getElementById('signalsGrid');
+    grid.innerHTML = '';
+    if (data.signals) {
+      Object.entries(data.signals).forEach(([k, v]) => {
+        const lbl = k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        grid.innerHTML += `<div class="signal-chip"><div class="signal-label">${lbl}</div><div class="signal-val">${v}</div></div>`;
+      });
+    }
+
+    document.getElementById('analysisText').textContent = data.analysis || '';
+    const card = document.getElementById('result-card');
+    card.style.display = 'block';
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function setLoading(btnId, loading) {
+    const btn = document.getElementById(btnId);
+    btn.disabled = loading;
+    btn.classList.toggle('loading', loading);
+    btn.textContent = loading ? 'Analyzing...' : '⚡ Analyze ' + (btnId.includes('Text') ? 'Text' : 'Image');
+  }
+
+  function hideResult() { document.getElementById('result-card').style.display = 'none'; }
+  function showError(msg) {
+    const box = document.getElementById('errorBox');
+    box.textContent = '⚠ ' + msg;
+    box.style.display = 'block';
+  }
+  function hideError() { document.getElementById('errorBox').style.display = 'none'; }
+</script>
+</body>
+</html>
